@@ -267,7 +267,7 @@ class LncRNASiameseDataset(Dataset):
             torch.from_numpy(node_delta_max).unsqueeze(1)
         ], dim=1)  # Now 13 dims per node
 
-
+        x = (x - x.mean(dim=0)) / (x.std(dim=0) + 1e-6)
         # ---- Graph-level handcrafted features ----
         # CRITICAL: Include GLOBAL features from full matrices (the strongest signal!)
         
