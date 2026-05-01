@@ -83,7 +83,7 @@ class PerturbationGAT(nn.Module):
         combined_dim = gnn_out_dim + 32
         self.classifier = nn.Sequential(
             nn.Linear(combined_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.LeakyReLU(),
             nn.Dropout(0.1),
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -91,7 +91,7 @@ class PerturbationGAT(nn.Module):
             nn.Linear(hidden_dim // 2, 1)
         )
     
-    def forward(self, data, use_gnn=True):
+    def forward(self, data, use_gnn=True, return_embed=False):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
         graph_features = data.graph_features.view(-1, self.feat_proj[0].in_features)
         
@@ -126,6 +126,90 @@ class PerturbationGAT(nn.Module):
         
         # Combine GNN + handcrafted and classify
         combined = torch.cat([gnn_embed, feat_embed], dim=1)
+        if return_embed:
+            return combined
+            
         logits = self.classifier(combined)
+        
+        return logits
+
+class LateFusionGNN(nn.Module):
+    def __init__(self, expert_weights_path, device):
+        super().__init__()
+        
+        # 1. The Expert GNN (expects 14 handcrafted features)
+        self.expert = PerturbationGAT(node_in_dim=13, edge_dim=3, graph_feat_dim=14, hidden_dim=128)
+        
+        # Load weights safely
+        state_dict = torch.load(expert_weights_path, map_location=device)
+        self.expert.load_state_dict(state_dict)
+        
+        # Freeze the expert completely
+        for param in self.expert.parameters():
+            param.requires_grad = False
+            
+        # 2. New Features Branch (Conservation + Delta G = 2 features)
+        self.new_feat_proj = nn.Sequential(
+            nn.Linear(2, 16),
+            nn.BatchNorm1d(16),
+            nn.LeakyReLU(),
+            nn.Linear(16, 16),
+            nn.LeakyReLU()
+        )
+        
+        # 3. Dynamic Attention Gate
+        # Takes [expert_embed (288) + new_embed (16)] -> [weight_expert, weight_new]
+        expert_embed_dim = self.expert.gnn_out_dim + 32 # 256 + 32 = 288
+        
+        self.gate_nn = nn.Sequential(
+            nn.Linear(expert_embed_dim + 16, 64),
+            nn.LeakyReLU(),
+            nn.Linear(64, 2),
+            nn.Softmax(dim=1)
+        )
+        
+        # 4. Final Fusion Classifier
+        self.classifier = nn.Sequential(
+            nn.Linear(expert_embed_dim + 16, 128),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, data):
+        # The dataset provides 16 features total
+        gf_all = data.graph_features.view(-1, 16)
+        
+        # Split features
+        old_feats = gf_all[:, :14] # The 14 original structural features
+        new_feats = gf_all[:, 14:] # Conservation (14) + Delta G (15)
+        
+        # Temporarily override graph_features for the expert
+        data.graph_features = old_feats
+        
+        # The expert is frozen, no gradients needed for its internal ops
+        with torch.no_grad():
+            expert_embed = self.expert(data, return_embed=True)
+            
+        # Restore them just in case
+        data.graph_features = gf_all.view(-1)
+        
+        # Process new features
+        new_embed = self.new_feat_proj(new_feats)
+        
+        # Calculate Attention Gate
+        concat_embed = torch.cat([expert_embed, new_embed], dim=1)
+        alpha = self.gate_nn(concat_embed) # Shape: (Batch, 2)
+        
+        # Apply Attention Weights
+        weighted_expert = expert_embed * alpha[:, 0].unsqueeze(1)
+        weighted_new = new_embed * alpha[:, 1].unsqueeze(1)
+        
+        # Classify
+        final_concat = torch.cat([weighted_expert, weighted_new], dim=1)
+        logits = self.classifier(final_concat)
         
         return logits
