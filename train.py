@@ -263,7 +263,7 @@ def train_late_fusion(args):
 
     The expert GNN is loaded from ``args.expert_weights`` and its parameters are
     frozen throughout training. Only the new-feature projection branch, the
-    attention gate, and the final fusion classifier are updated. A 30% feature
+    attention gate, and the final fusion classifier are updated. A 50% feature
     dropout on the conservation score (graph_features index 14) is applied per
     batch to prevent the model from over-relying on that single signal.
 
