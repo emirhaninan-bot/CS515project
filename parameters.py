@@ -15,7 +15,7 @@ def get_args():
             (expert_weights, fusion_weights, best_gat_weights).
     """
     parser = argparse.ArgumentParser(
-        description="lncRNA Variant Pathogenicity Prediction with Siamese GAT",
+        description="lncRNA Variant Pathogenicity Prediction with GAT",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
