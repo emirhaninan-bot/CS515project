@@ -57,7 +57,7 @@ def get_args():
     # ── LateFusionGNN training ────────────────────────────────────────────────
     parser.add_argument("--fusion-batch-size", type=int, default=32, metavar="N",
                         help="Batch size for LateFusionGNN training")
-    parser.add_argument("--fusion-epochs", type=int, default=15, metavar="N",
+    parser.add_argument("--fusion-epochs", type=int, default=30, metavar="N",
                         help="Epochs to train the LateFusionGNN fusion head")
     parser.add_argument("--fusion-lr", type=float, default=1e-3, metavar="LR",
                         help="Learning rate for the fusion head optimizer")
